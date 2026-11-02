@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod app;
+mod bridge;
 mod capsule;
 mod gfx;
 mod i18n;

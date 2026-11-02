@@ -29,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
+use crate::bridge;
 use crate::capsule;
 use crate::gfx::Gfx;
 use crate::panel::{self, Action, Hit, Page};
@@ -141,7 +142,7 @@ pub fn run() -> Result<()> {
             hits: Vec::new(),
             panel_hover: None,
             panel_tracking: false,
-            settings: Settings::load(),
+            settings: load_settings(),
             snapshot: None,
             modified: None,
             hover: false,
@@ -152,6 +153,7 @@ pub fn run() -> Result<()> {
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         with_app(App::tick);
         SetTimer(Some(host), TIMER_TICK, TICK_MS, None);
+        bridge::ensure_installed();
 
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).as_bool() {
@@ -160,6 +162,18 @@ pub fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The first run turns on starting with Windows; from then on it is the
+/// person's toggle.
+fn load_settings() -> Settings {
+    let mut settings = Settings::load();
+    if !settings.initialized {
+        settings.initialized = true;
+        startup::set_enabled(true);
+        settings.save();
+    }
+    settings
 }
 
 type WindowProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
@@ -322,13 +336,14 @@ impl App {
     fn panel_notice(&self, limits: &[Limit]) -> Option<&'static str> {
         let lang = self.settings.lang();
         let Some(snapshot) = &self.snapshot else {
-            return Some(lang.notice_first_run());
+            return Some(if bridge::claude_is_missing() {
+                lang.notice_no_claude()
+            } else {
+                lang.notice_first_run()
+            });
         };
         if self.is_stale() {
             return Some(lang.notice_stale());
-        }
-        if snapshot.error.is_some() {
-            return Some(lang.notice_failed());
         }
         match snapshot.plan.as_ref().map(|plan| plan.status.as_str()) {
             Some("not_applicable") => Some(lang.notice_no_limits()),

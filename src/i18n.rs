@@ -169,10 +169,10 @@ impl Lang {
         )
     }
 
-    pub const fn notice_failed(self) -> &'static str {
+    pub const fn notice_no_claude(self) -> &'static str {
         self.pick(
-            "La app no pudo informar tu consumo.",
-            "The app couldn't report your usage.",
+            "Instalá la app de Claude para ver tu consumo.",
+            "Install the Claude app to see your usage.",
         )
     }
 

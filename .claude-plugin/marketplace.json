@@ -1,0 +1,12 @@
+{
+  "name": "claude-usage-widget",
+  "owner": { "name": "Facu Sichi" },
+  "description": "The mod behind the Claude usage taskbar widget.",
+  "plugins": [
+    {
+      "name": "claude-usage-bridge",
+      "source": "./mod",
+      "description": "Feeds the Claude usage taskbar widget with the plan limits the Claude app reports."
+    }
+  ]
+}

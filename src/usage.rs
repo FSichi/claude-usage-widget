@@ -16,7 +16,6 @@ pub const STALE_AFTER_MS: i64 = 5 * MINUTE_MS;
 pub struct Snapshot {
     pub updated_at: i64,
     pub plan: Option<Plan>,
-    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -348,9 +347,8 @@ mod tests {
     }
 
     #[test]
-    fn tolerates_an_error_snapshot_and_a_bom() {
-        let snapshot = parse("\u{feff}{\"updatedAt\": 5, \"error\": \"nope\"}").unwrap();
-        assert_eq!(snapshot.error.as_deref(), Some("nope"));
+    fn tolerates_a_snapshot_without_a_plan_and_a_bom() {
+        let snapshot = parse("\u{feff}{\"updatedAt\": 5, \"bridge\": \"0.2.0\"}").unwrap();
         assert!(snapshot.plan.is_none());
         assert!(parse("{ half a fi").is_none());
     }

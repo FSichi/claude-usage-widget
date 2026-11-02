@@ -19,6 +19,8 @@ pub struct Settings {
     pub theme: String,
     /// `None` follows the language Windows runs in.
     pub lang: Option<Lang>,
+    /// Set after the first run, which turns on starting with Windows.
+    pub initialized: bool,
 }
 
 impl Default for Settings {
@@ -28,6 +30,7 @@ impl Default for Settings {
             offset_x: None,
             theme: AUTO.to_string(),
             lang: None,
+            initialized: false,
         }
     }
 }

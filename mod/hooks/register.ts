@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 
+const BRIDGE = '0.2.0'
 const SERVER = 'ccd_session_mgmt'
 const TOOL = 'get_usage'
 const PERIOD_MS = 60_000
@@ -13,20 +14,22 @@ export const register: Register = (on) => {
     const path = `${base}/ClaudeUsageWidget/usage.json`
 
     const refresh = async () => {
-      const now = await $.clock.now()
       try {
+        const now = await $.clock.now()
         const stat = await $.fs.stat(path).catch(() => undefined)
         if (stat && now - stat.mtimeMs < MIN_GAP_MS) return
 
         const result = await $.mcp.call(SERVER, TOOL, {})
         const block = result.content.find((b) => b.type === 'text')
         const text = block && 'text' in block ? block.text : undefined
-        if (result.isError || !text) throw new Error(text ?? 'empty result')
+        if (result.isError || !text) return
 
         const { plan } = JSON.parse(text)
-        await $.fs.write(path, JSON.stringify({ updatedAt: now, plan }, null, 2))
-      } catch (error) {
-        await $.fs.write(path, JSON.stringify({ updatedAt: now, error: String(error) }, null, 2))
+        if (!plan || plan.status === 'unavailable') return
+        await $.fs.write(path, JSON.stringify({ updatedAt: now, bridge: BRIDGE, plan }, null, 2))
+      } catch {
+        // A terminal session has no such server. The last reading stays, and
+        // the widget says so once it grows old.
       }
     }
 
