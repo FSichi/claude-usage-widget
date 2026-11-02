@@ -197,6 +197,14 @@ impl Lang {
         format!("{title} {}", self.pick("volvió a cero", "is back to zero"))
     }
 
+    pub const fn monitor(self) -> &'static str {
+        self.pick("Pantalla", "Display")
+    }
+
+    pub const fn compact(self) -> &'static str {
+        self.pick("Modo compacto", "Compact mode")
+    }
+
     pub const fn alerts(self) -> &'static str {
         self.pick("Alertas", "Alerts")
     }

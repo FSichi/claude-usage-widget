@@ -389,7 +389,7 @@ impl App {
     }
 
     fn ensure_capsule(&mut self) {
-        let Some(found) = taskbar::find() else {
+        let Some(found) = taskbar::find(self.settings.monitor) else {
             return;
         };
         let alive = self.capsule.is_some_and(taskbar::is_alive);
@@ -459,10 +459,11 @@ impl App {
             .filter(|l| self.settings.is_visible(l))
             .count();
         let scale = scale_of(hwnd);
-        let width = capsule::width(visible, self.capsule_message(limits).is_some());
+        let compact = self.settings.compact;
+        let message = self.capsule_message(limits).is_some();
         (
-            (width * scale).ceil() as i32,
-            (capsule::HEIGHT * scale).ceil() as i32,
+            (capsule::width(visible, message, compact) * scale).ceil() as i32,
+            (capsule::height(compact) * scale).ceil() as i32,
         )
     }
 
@@ -516,6 +517,7 @@ impl App {
             now: now_ms(),
             lang: self.settings.lang(),
             hover: self.hover,
+            compact: self.settings.compact,
         };
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let opacity = if self.is_stale() { STALE_OPACITY } else { 255 };
@@ -676,6 +678,8 @@ impl App {
             notice: self.panel_notice(&limits),
             startup: startup::is_enabled(),
             now: now_ms(),
+            monitors: taskbar::count(),
+            monitor: self.taskbar.and_then(taskbar::index_of).unwrap_or(0),
         };
         let scale = scale_of(capsule);
         let width = (panel::WIDTH * scale).ceil() as i32;
@@ -761,6 +765,18 @@ impl App {
             }
             Action::Lang(lang) => {
                 self.settings.lang = Some(lang);
+                self.settings.save();
+                self.redraw();
+            }
+            Action::Monitor(index) => {
+                // A position on one taskbar means nothing on another.
+                self.settings.monitor = Some(index);
+                self.settings.offset_x = None;
+                self.settings.save();
+                self.ensure_capsule();
+            }
+            Action::Compact => {
+                self.settings.compact = !self.settings.compact;
                 self.settings.save();
                 self.redraw();
             }

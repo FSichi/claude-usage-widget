@@ -7,7 +7,8 @@ use crate::i18n::Lang;
 use crate::theme::{bar_fill, Palette};
 use crate::usage::{Kind, Limit};
 
-pub const HEIGHT: f32 = 40.0;
+const HEIGHT: f32 = 40.0;
+const COMPACT_HEIGHT: f32 = 30.0;
 
 const RADIUS: f32 = 9.0;
 const PAD_X: f32 = 11.0;
@@ -27,16 +28,32 @@ const TRAILING_X: f32 = 192.0;
 const TRAILING_W: f32 = 50.0;
 const ROW_W: f32 = TRAILING_X + TRAILING_W;
 
+const COMPACT_ITEM_W: f32 = 54.0;
+const DOT: f32 = 8.0;
+const DOT_GAP: f32 = 6.0;
+
 const LABEL: Font = Font::new(12.0, 400, Align::Start);
 const VALUE: Font = Font::new(12.0, 600, Align::End);
+const COMPACT_VALUE: Font = Font::new(13.0, 600, Align::Start);
 const MESSAGE: Font = Font::new(13.0, 400, Align::Center);
 
-pub fn width(rows: usize, has_message: bool) -> f32 {
+pub fn width(rows: usize, has_message: bool, compact: bool) -> f32 {
     if has_message || rows == 0 {
         return MESSAGE_W;
     }
+    if compact {
+        return 2.0 * PAD_X + rows as f32 * COMPACT_ITEM_W;
+    }
     let columns = rows.div_ceil(ROWS_PER_COLUMN) as f32;
     2.0 * PAD_X + columns * ROW_W + (columns - 1.0) * COLUMN_GAP
+}
+
+pub const fn height(compact: bool) -> f32 {
+    if compact {
+        COMPACT_HEIGHT
+    } else {
+        HEIGHT
+    }
 }
 
 /// Where each row goes, centring a column that holds a single row.
@@ -62,11 +79,13 @@ pub struct View<'a> {
     pub now: i64,
     pub lang: Lang,
     pub hover: bool,
+    pub compact: bool,
 }
 
 pub fn draw(canvas: &Canvas, view: &View, palette: &Palette) -> Result<()> {
-    let total = width(view.limits.len(), view.message.is_some());
-    let frame = Rect::new(0.5, 0.5, total - 1.0, HEIGHT - 1.0);
+    let total = width(view.limits.len(), view.message.is_some(), view.compact);
+    let tall = height(view.compact);
+    let frame = Rect::new(0.5, 0.5, total - 1.0, tall - 1.0);
     let background = if view.hover {
         palette.capsule_hover
     } else {
@@ -77,13 +96,36 @@ pub fn draw(canvas: &Canvas, view: &View, palette: &Palette) -> Result<()> {
 
     if view.message.is_some() || view.limits.is_empty() {
         let text = view.message.unwrap_or("Claude");
-        let area = Rect::new(0.0, 0.0, total, HEIGHT);
+        let area = Rect::new(0.0, 0.0, total, tall);
         return canvas.text(text, area, MESSAGE, palette.muted);
+    }
+    if view.compact {
+        for (index, limit) in view.limits.iter().enumerate() {
+            let x = PAD_X + index as f32 * COMPACT_ITEM_W;
+            draw_compact_item(canvas, limit, x, view, palette)?;
+        }
+        return Ok(());
     }
     for (limit, origin) in view.limits.iter().zip(row_origins(view.limits.len())) {
         draw_row(canvas, limit, origin, view, palette)?;
     }
     Ok(())
+}
+
+/// The dot carries what the bar would: which kind of limit, and how it stands.
+fn draw_compact_item(
+    canvas: &Canvas,
+    limit: &Limit,
+    x: f32,
+    view: &View,
+    palette: &Palette,
+) -> Result<()> {
+    let (color, _) = bar_fill(limit, view.now, palette);
+    let dot = Rect::new(x, (COMPACT_HEIGHT - DOT) / 2.0, DOT, DOT);
+    canvas.fill(dot, DOT / 2.0, color)?;
+    let value_x = x + DOT + DOT_GAP;
+    let value = Rect::new(value_x, 0.0, COMPACT_ITEM_W - DOT - DOT_GAP, COMPACT_HEIGHT);
+    canvas.text(&limit.value, value, COMPACT_VALUE, palette.text)
 }
 
 fn draw_row(
@@ -143,16 +185,27 @@ mod tests {
 
     #[test]
     fn grows_a_column_for_every_pair_of_rows() {
-        let one_column = width(1, false);
-        assert_eq!(width(2, false), one_column);
-        assert_eq!(width(3, false), one_column + ROW_W + COLUMN_GAP);
-        assert_eq!(width(4, false), width(3, false));
+        let one_column = width(1, false, false);
+        assert_eq!(width(2, false, false), one_column);
+        assert_eq!(width(3, false, false), one_column + ROW_W + COLUMN_GAP);
+        assert_eq!(width(4, false, false), width(3, false, false));
+    }
+
+    #[test]
+    fn compact_grows_item_by_item_and_takes_less_room() {
+        assert_eq!(
+            width(3, false, true) - width(2, false, true),
+            COMPACT_ITEM_W
+        );
+        assert!(width(2, false, true) < width(1, false, false));
+        assert!(height(true) < height(false));
     }
 
     #[test]
     fn a_message_or_nothing_to_show_stays_small() {
-        assert_eq!(width(2, true), MESSAGE_W);
-        assert_eq!(width(0, false), MESSAGE_W);
+        assert_eq!(width(2, true, false), MESSAGE_W);
+        assert_eq!(width(0, false, false), MESSAGE_W);
+        assert_eq!(width(2, true, true), MESSAGE_W);
     }
 
     #[test]

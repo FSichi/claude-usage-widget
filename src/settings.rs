@@ -29,6 +29,10 @@ pub struct Settings {
     pub alert_at: u8,
     /// What each limit has already been alerted about.
     pub marks: BTreeMap<String, Mark>,
+    /// Counted from the left; `None` is the main monitor.
+    pub monitor: Option<usize>,
+    /// Only a dot and a value per limit, in a single row.
+    pub compact: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +46,8 @@ impl Default for Settings {
             alerts: true,
             alert_at: 80,
             marks: BTreeMap::new(),
+            monitor: None,
+            compact: false,
         }
     }
 }
