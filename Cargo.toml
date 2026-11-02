@@ -3,6 +3,8 @@ name = "claude-usage-widget"
 version = "1.0.0"
 edition = "2021"
 description = "Windows taskbar capsule showing Claude plan limits"
+license = "MIT"
+repository = "https://github.com/FSichi/claude-usage-widget"
 publish = false
 
 [dependencies]

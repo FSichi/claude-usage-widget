@@ -74,3 +74,7 @@ claude plugin test mod
 La configuración está en `.cargo/config.toml`. Si el repo está en una carpeta sincronizada, como
 OneDrive, conviene definir `build.target-dir` en `~/.cargo/config.toml`. Esta compilación local no
 lleva el logo, porque hace falta un compilador de recursos: el `.exe` con logo sale del Action.
+
+## Licencia
+
+[MIT](LICENSE).
