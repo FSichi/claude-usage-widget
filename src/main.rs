@@ -5,6 +5,7 @@ mod app;
 mod bridge;
 mod capsule;
 mod gfx;
+mod history;
 mod i18n;
 mod notify;
 mod panel;

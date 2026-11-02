@@ -4,6 +4,7 @@ use windows::core::Result;
 
 use crate::capsule::draw_bar;
 use crate::gfx::{Align, Canvas, Color, Font, Rect};
+use crate::history::{History, CHART_DAYS};
 use crate::i18n::{Lang, LocalTime};
 use crate::settings::Settings;
 use crate::theme::{system_palette, Palette, Theme, AUTO, THEMES, WARNING};
@@ -48,8 +49,18 @@ const STARTUP_ROW: f32 = 5.0;
 const QUIT_ROW: f32 = 6.0;
 const OPTION_ROWS: f32 = 7.0;
 
+const CHART_TOP: f32 = HEADER_H + 26.0;
+const CHART_H: f32 = 96.0;
+const CHART_BAR_W: f32 = 16.0;
+const CHART_STUB_H: f32 = 3.0;
+const CHART_LABEL_H: f32 = 22.0;
+const TOTAL_H: f32 = 22.0;
+/// So a quiet fortnight doesn't draw like a heavy one.
+const CHART_MIN_SCALE: f64 = 5.0;
+
 const GEAR: &str = "\u{E713}";
 const BACK: &str = "\u{E72B}";
+const HISTORY: &str = "\u{E9D2}";
 
 const TITLE: Font = Font::new(16.0, 600, Align::Start);
 const LABEL: Font = Font::new(14.0, 400, Align::Start);
@@ -65,6 +76,7 @@ const ICON: Font = Font::icon(15.0);
 pub enum Page {
     Usage,
     Settings,
+    History,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +123,10 @@ pub struct View<'a> {
     pub monitors: usize,
     /// Which of them holds the capsule, counted from the left.
     pub monitor: usize,
+    pub history: &'a History,
+    /// Today as a day number, and as a weekday with Sunday at 0.
+    pub today: i64,
+    pub weekday: u16,
 }
 
 impl View<'_> {
@@ -150,6 +166,7 @@ impl View<'_> {
         let content = match self.page {
             Page::Usage => self.rows_bottom(),
             Page::Settings => settings_bottom(),
+            Page::History => CHART_TOP + CHART_H + CHART_LABEL_H + 2.0 * TOTAL_H,
         };
         content + BOTTOM_PAD
     }
@@ -158,6 +175,10 @@ impl View<'_> {
         match self.page {
             Page::Usage => self.usage_hits(),
             Page::Settings => settings_hits(self.monitors),
+            Page::History => vec![Hit {
+                rect: back_rect(),
+                action: Action::Page(Page::Usage),
+            }],
         }
     }
 
@@ -172,6 +193,10 @@ impl View<'_> {
             })
             .collect();
         hits.push(Hit {
+            rect: history_rect(),
+            action: Action::Page(Page::History),
+        });
+        hits.push(Hit {
             rect: gear_rect(),
             action: Action::Page(Page::Settings),
         });
@@ -181,6 +206,15 @@ impl View<'_> {
 
 fn gear_rect() -> Rect {
     Rect::new(WIDTH - PAD - ICON_SIZE, 13.0, ICON_SIZE, ICON_SIZE)
+}
+
+fn history_rect() -> Rect {
+    Rect::new(
+        WIDTH - PAD - 2.0 * ICON_SIZE - 2.0,
+        13.0,
+        ICON_SIZE,
+        ICON_SIZE,
+    )
 }
 
 fn back_rect() -> Rect {
@@ -303,6 +337,64 @@ pub fn draw(
     match view.page {
         Page::Usage => draw_usage(canvas, view, palette),
         Page::Settings => draw_settings(canvas, view, hovered, palette),
+        Page::History => draw_history(canvas, view, palette),
+    }
+}
+
+fn draw_history(canvas: &Canvas, view: &View, palette: &Palette) -> Result<()> {
+    let lang = view.lang;
+    canvas.text(BACK, back_rect(), ICON, palette.muted)?;
+    canvas.text(
+        lang.history_title(),
+        Rect::new(PAD + 30.0, 16.0, 220.0, 24.0),
+        TITLE,
+        palette.text,
+    )?;
+    canvas.text(
+        lang.history_section(),
+        Rect::new(PAD, HEADER_H, CONTENT_W, 18.0),
+        SMALL,
+        palette.muted,
+    )?;
+
+    let days = view.history.recent(view.today);
+    let tallest = days.iter().copied().fold(CHART_MIN_SCALE, f64::max);
+    let step = CONTENT_W / CHART_DAYS as f32;
+    let base = CHART_TOP + CHART_H;
+    for (index, used) in days.iter().enumerate() {
+        let x = PAD + index as f32 * step + (step - CHART_BAR_W) / 2.0;
+        let stub = Rect::new(x, base - CHART_STUB_H, CHART_BAR_W, CHART_STUB_H);
+        canvas.fill(stub, CHART_STUB_H / 2.0, palette.track)?;
+        if *used > 0.0 {
+            let height = (CHART_H * (*used / tallest) as f32).max(CHART_STUB_H);
+            let bar = Rect::new(x, base - height, CHART_BAR_W, height);
+            let is_today = index == CHART_DAYS - 1;
+            let color = if is_today {
+                palette.bar.0
+            } else {
+                palette.bar.0.alpha(0.55)
+            };
+            canvas.fill(bar, 3.0, color)?;
+        }
+        let days_ago = (CHART_DAYS - 1 - index) as u16;
+        let weekday = (view.weekday + 21 - days_ago) % 7;
+        let label = Rect::new(x - 4.0, base + 3.0, CHART_BAR_W + 8.0, CHART_LABEL_H - 5.0);
+        let letter = lang.weekday_initial(weekday);
+        canvas.text(letter, label, SMALL_CENTER, palette.muted)?;
+    }
+
+    let (current, previous) = view.history.week_totals(view.today);
+    let first = base + CHART_LABEL_H;
+    let line = Rect::new(PAD, first, CONTENT_W, TOTAL_H);
+    let text = lang.week_total(current.round() as i64);
+    canvas.text(&text, line, LABEL, palette.text)?;
+    let line = Rect::new(PAD, first + TOTAL_H, CONTENT_W, TOTAL_H);
+    match previous {
+        Some(total) => {
+            let text = lang.previous_week_total(total.round() as i64);
+            canvas.text(&text, line, SMALL, palette.muted)
+        }
+        None => canvas.text(lang.no_previous_week(), line, SMALL, palette.muted),
     }
 }
 
@@ -324,10 +416,11 @@ fn draw_usage(canvas: &Canvas, view: &View, palette: &Palette) -> Result<()> {
         palette.muted,
     )?;
     if let Some(plan) = view.plan {
-        let chip = Rect::new(WIDTH - PAD - ICON_SIZE - 66.0, 17.0, 60.0, 23.0);
+        let chip = Rect::new(history_rect().x - 66.0, 17.0, 60.0, 23.0);
         canvas.fill(chip, 11.5, palette.hover)?;
         canvas.text(plan, chip, CHIP, palette.text)?;
     }
+    canvas.text(HISTORY, history_rect(), ICON, palette.muted)?;
     canvas.text(GEAR, gear_rect(), ICON, palette.muted)?;
 
     if let Some(notice) = view.notice {
@@ -624,6 +717,9 @@ mod tests {
             now: 0,
             monitors: 3,
             monitor: 0,
+            history: Box::leak(Box::default()),
+            today: 100,
+            weekday: 1,
         }
     }
 
@@ -644,6 +740,7 @@ mod tests {
             [
                 Action::Toggle("weekly".into()),
                 Action::Toggle("weekly:fable".into()),
+                Action::Page(Page::History),
                 Action::Page(Page::Settings),
             ]
         );
@@ -688,10 +785,18 @@ mod tests {
     }
 
     #[test]
-    fn every_target_stays_inside_the_panel_on_both_pages() {
+    fn the_history_page_only_leads_back() {
+        let settings = Settings::default();
+        let hits = view(Page::History, &[], &settings, None).hits();
+        let actions: Vec<_> = hits.into_iter().map(|hit| hit.action).collect();
+        assert_eq!(actions, [Action::Page(Page::Usage)]);
+    }
+
+    #[test]
+    fn every_target_stays_inside_the_panel_on_every_page() {
         let limits = [limit("weekly", Kind::Weekly)];
         let settings = Settings::default();
-        for page in [Page::Usage, Page::Settings] {
+        for page in [Page::Usage, Page::Settings, Page::History] {
             let view = view(page, &limits, &settings, Some("Sin datos nuevos"));
             for hit in view.hits() {
                 assert!(hit.rect.y + hit.rect.h <= view.height(), "{:?}", hit.action);
