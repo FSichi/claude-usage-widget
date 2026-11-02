@@ -33,13 +33,15 @@ use crate::alerts;
 use crate::bridge;
 use crate::capsule;
 use crate::gfx::Gfx;
+use crate::history::History;
+use crate::i18n::LocalTime;
 use crate::notify;
 use crate::panel::{self, Action, Hit, Page};
 use crate::settings::{self, usage_path, Settings};
 use crate::startup;
 use crate::taskbar;
 use crate::theme;
-use crate::usage::{self, Limit, Snapshot, STALE_AFTER_MS};
+use crate::usage::{self, Kind, Limit, Snapshot, STALE_AFTER_MS};
 
 const HOST_CLASS: PCWSTR = w!("ClaudeUsageWidgetHost");
 const CAPSULE_CLASS: PCWSTR = w!("ClaudeUsageWidgetCapsule");
@@ -88,6 +90,7 @@ struct App {
     panel_hover: Option<usize>,
     panel_tracking: bool,
     settings: Settings,
+    history: History,
     snapshot: Option<Snapshot>,
     modified: Option<SystemTime>,
     hover: bool,
@@ -147,6 +150,7 @@ pub fn run() -> Result<()> {
             panel_hover: None,
             panel_tracking: false,
             settings: load_settings(),
+            history: History::load(),
             snapshot: None,
             modified: None,
             hover: false,
@@ -286,8 +290,9 @@ impl App {
     fn tick(&mut self) {
         self.ensure_capsule();
         let changed = self.reload();
-        if changed {
+        if changed && !self.is_stale() {
             self.check_alerts();
+            self.record_history();
         }
         self.ticks = self.ticks.wrapping_add(1);
         if changed || self.ticks.is_multiple_of(REDRAW_EVERY_TICKS) {
@@ -316,12 +321,21 @@ impl App {
         }
     }
 
-    /// Marks stay current with alerts off, so turning them on does not announce
-    /// what already happened. An old file says nothing about now.
-    fn check_alerts(&mut self) {
-        if self.is_stale() {
-            return;
+    fn record_history(&mut self) {
+        let limits = self.limits();
+        let weekly = limits.iter().find(|limit| limit.kind == Kind::Weekly);
+        let today = LocalTime::from_ms(now_ms());
+        if let (Some(weekly), Some(today)) = (weekly, today) {
+            let day = today.day_number();
+            if self.history.record(day, weekly.percent, weekly.resets_at) {
+                self.history.save();
+            }
         }
+    }
+
+    /// Marks stay current with alerts off, so turning them on does not announce
+    /// what already happened.
+    fn check_alerts(&mut self) {
         let limits = self.limits();
         let warn_at = f64::from(self.settings.alert_at);
         let mut events = Vec::new();
@@ -389,7 +403,7 @@ impl App {
     }
 
     fn ensure_capsule(&mut self) {
-        let Some(found) = taskbar::find() else {
+        let Some(found) = taskbar::find(self.settings.monitor) else {
             return;
         };
         let alive = self.capsule.is_some_and(taskbar::is_alive);
@@ -459,10 +473,11 @@ impl App {
             .filter(|l| self.settings.is_visible(l))
             .count();
         let scale = scale_of(hwnd);
-        let width = capsule::width(visible, self.capsule_message(limits).is_some());
+        let compact = self.settings.compact;
+        let message = self.capsule_message(limits).is_some();
         (
-            (width * scale).ceil() as i32,
-            (capsule::HEIGHT * scale).ceil() as i32,
+            (capsule::width(visible, message, compact) * scale).ceil() as i32,
+            (capsule::height(compact) * scale).ceil() as i32,
         )
     }
 
@@ -516,6 +531,7 @@ impl App {
             now: now_ms(),
             lang: self.settings.lang(),
             hover: self.hover,
+            compact: self.settings.compact,
         };
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let opacity = if self.is_stale() { STALE_OPACITY } else { 255 };
@@ -666,6 +682,7 @@ impl App {
             .as_ref()
             .and_then(|snapshot| snapshot.plan.as_ref())
             .and_then(|plan| plan.plan.as_deref());
+        let today = LocalTime::from_ms(now_ms());
         let view = panel::View {
             page: self.page,
             limits: &limits,
@@ -676,6 +693,11 @@ impl App {
             notice: self.panel_notice(&limits),
             startup: startup::is_enabled(),
             now: now_ms(),
+            monitors: taskbar::count(),
+            monitor: self.taskbar.and_then(taskbar::index_of).unwrap_or(0),
+            history: &self.history,
+            today: today.map_or(0, |today| today.day_number()),
+            weekday: today.map_or(0, |today| today.weekday),
         };
         let scale = scale_of(capsule);
         let width = (panel::WIDTH * scale).ceil() as i32;
@@ -761,6 +783,18 @@ impl App {
             }
             Action::Lang(lang) => {
                 self.settings.lang = Some(lang);
+                self.settings.save();
+                self.redraw();
+            }
+            Action::Monitor(index) => {
+                // A position on one taskbar means nothing on another.
+                self.settings.monitor = Some(index);
+                self.settings.offset_x = None;
+                self.settings.save();
+                self.ensure_capsule();
+            }
+            Action::Compact => {
+                self.settings.compact = !self.settings.compact;
                 self.settings.save();
                 self.redraw();
             }

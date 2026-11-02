@@ -4,11 +4,13 @@ Una cápsula para la barra de tareas de Windows que muestra el consumo del plan 
 
 - Muestra solo los límites que tu plan informa: semanal, por modelo, 5 horas y uso extra.
 - Cada límite se muestra u oculta desde el panel que se abre con un clic.
-- Marca el ritmo esperado, para ver si vas por encima o por debajo de lo que corresponde a esta altura de la ventana.
+- Marca el ritmo esperado, para ver si vas por encima o por debajo de lo que corresponde a esta altura de la ventana. La barra se pone ámbar cuando lo pasás.
 - Proyecta dónde vas a terminar si mantenés ese ritmo, o cuándo llegarías al límite.
+- Guarda un historial con el consumo de cada día de las últimas dos semanas, y compara los últimos 7 días con los 7 anteriores.
 - Avisa con una notificación de Windows al cruzar el 70, 80 o 90% que elijas, al llegar al 95%, y cuando se reinicia un límite que ya te había avisado.
 - Ocho temas, y español o inglés.
-- Se arrastra a lo largo de la barra y guarda la posición.
+- Se arrastra a lo largo de la barra, guarda la posición y puede vivir en cualquier monitor con barra de tareas.
+- Tiene un modo compacto: un punto y un valor por límite, en una sola fila.
 - Es un `.exe` nativo de menos de 1 MB.
 
 ## Usarlo
@@ -42,14 +44,18 @@ La consulta que usa el mod no es una API pública de Anthropic: si cambia, habr�
 
 ## Publicar una versión
 
-Una etiqueta `v*` dispara [el Action](.github/workflows/release.yml): corre los tests en Windows,
-compila el `.exe` con el logo y lo publica en Releases. Si se lanza a mano desde la pestaña Actions,
-deja el `.exe` como artefacto de la corrida, sin publicar nada.
+Las ramas, los commits, los PR y las versiones van con [gitwiz](https://github.com/FSichi/gitwiz).
+Este repo no tiene `package.json`, así que gitwiz toma la versión de la última etiqueta: la de
+`Cargo.toml` se sube a mano en la rama del release.
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+gitwiz release start --minor
+gitwiz release finish --yes
 ```
+
+La etiqueta `v*` que deja gitwiz dispara [el Action](.github/workflows/release.yml): corre los tests
+en Windows, compila el `.exe` con el logo y lo publica en Releases. Si se lanza a mano desde la
+pestaña Actions, deja el `.exe` como artefacto de la corrida, sin publicar nada.
 
 El logo se genera con [`assets/make-icon.ps1`](assets/make-icon.ps1).
 

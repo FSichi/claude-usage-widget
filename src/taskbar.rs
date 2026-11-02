@@ -1,18 +1,65 @@
 //! Living inside the Windows taskbar: finding it and becoming its child.
 
-use windows::core::{w, Result};
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::core::{Result, BOOL};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetClientRect, GetParent, GetWindowLongW, IsWindow, SetParent, SetWindowLongW,
-    SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    EnumWindows, GetClassNameW, GetClientRect, GetParent, GetWindowLongW, GetWindowRect, IsWindow,
+    SetParent, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
-pub fn find() -> Option<HWND> {
-    unsafe { FindWindowW(w!("Shell_TrayWnd"), None) }
-        .ok()
-        .filter(|hwnd| !hwnd.0.is_null())
+const PRIMARY_CLASS: &str = "Shell_TrayWnd";
+const SECONDARY_CLASS: &str = "Shell_SecondaryTrayWnd";
+
+struct Taskbar {
+    hwnd: HWND,
+    left: i32,
+    primary: bool,
+}
+
+unsafe extern "system" fn collect(hwnd: HWND, found: LPARAM) -> BOOL {
+    let bars = &mut *(found.0 as *mut Vec<Taskbar>);
+    let mut class = [0u16; 32];
+    let length = GetClassNameW(hwnd, &mut class) as usize;
+    let name = String::from_utf16_lossy(&class[..length]);
+    let mut rect = RECT::default();
+    if (name == PRIMARY_CLASS || name == SECONDARY_CLASS) && GetWindowRect(hwnd, &mut rect).is_ok()
+    {
+        bars.push(Taskbar {
+            hwnd,
+            left: rect.left,
+            primary: name == PRIMARY_CLASS,
+        });
+    }
+    BOOL(1)
+}
+
+fn taskbars() -> Vec<Taskbar> {
+    let mut bars: Vec<Taskbar> = Vec::new();
+    let found = LPARAM(&mut bars as *mut Vec<Taskbar> as isize);
+    let _ = unsafe { EnumWindows(Some(collect), found) };
+    bars.sort_by_key(|bar| bar.left);
+    bars
+}
+
+/// How many monitors show a taskbar, numbered from left to right.
+pub fn count() -> usize {
+    taskbars().len()
+}
+
+/// The chosen monitor's taskbar, or the main one when it has none.
+pub fn find(chosen: Option<usize>) -> Option<HWND> {
+    let bars = taskbars();
+    chosen
+        .and_then(|index| bars.get(index))
+        .or_else(|| bars.iter().find(|bar| bar.primary))
+        .map(|bar| bar.hwnd)
+}
+
+/// Where `taskbar` falls in that left-to-right numbering.
+pub fn index_of(taskbar: HWND) -> Option<usize> {
+    taskbars().iter().position(|bar| bar.hwnd == taskbar)
 }
 
 pub fn is_alive(hwnd: HWND) -> bool {

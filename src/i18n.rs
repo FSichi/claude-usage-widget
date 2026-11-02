@@ -5,6 +5,8 @@ use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 
+use crate::usage::days_from_civil;
+
 const SPANISH_PRIMARY_ID: u16 = 0x0a;
 const PRIMARY_ID_MASK: u16 = 0x3ff;
 
@@ -31,6 +33,12 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
+    /// A number that grows by one each local day.
+    pub fn day_number(&self) -> i64 {
+        let (year, month, day) = self.date;
+        days_from_civil(i64::from(year), i64::from(month), i64::from(day))
+    }
+
     pub fn from_ms(ms: i64) -> Option<Self> {
         let ticks = ((ms + UNIX_EPOCH_IN_FILETIME_MS) * 10_000) as u64;
         let file_time = FILETIME {
@@ -195,6 +203,59 @@ impl Lang {
 
     pub fn alert_reset_line(self, title: &str) -> String {
         format!("{title} {}", self.pick("volvió a cero", "is back to zero"))
+    }
+
+    pub const fn history_title(self) -> &'static str {
+        self.pick("Historial", "History")
+    }
+
+    pub const fn history_section(self) -> &'static str {
+        self.pick(
+            "Consumo por día del límite semanal",
+            "Daily use of the weekly limit",
+        )
+    }
+
+    pub fn week_total(self, percent: i64) -> String {
+        format!(
+            "{} {percent}%",
+            self.pick("Últimos 7 días:", "Last 7 days:")
+        )
+    }
+
+    pub fn previous_week_total(self, percent: i64) -> String {
+        format!(
+            "{} {percent}%",
+            self.pick("7 días anteriores:", "Previous 7 days:")
+        )
+    }
+
+    pub const fn no_previous_week(self) -> &'static str {
+        self.pick(
+            "Todavía sin datos de la semana anterior",
+            "No data from the previous week yet",
+        )
+    }
+
+    /// One letter for the chart. Sunday is 0, as Windows numbers them.
+    pub const fn weekday_initial(self, day: u16) -> &'static str {
+        match day {
+            0 => self.pick("D", "S"),
+            1 => self.pick("L", "M"),
+            2 => self.pick("M", "T"),
+            3 => self.pick("M", "W"),
+            4 => self.pick("J", "T"),
+            5 => self.pick("V", "F"),
+            _ => self.pick("S", "S"),
+        }
+    }
+
+    pub const fn monitor(self) -> &'static str {
+        self.pick("Pantalla", "Display")
+    }
+
+    pub const fn compact(self) -> &'static str {
+        self.pick("Modo compacto", "Compact mode")
     }
 
     pub const fn alerts(self) -> &'static str {

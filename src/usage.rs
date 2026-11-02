@@ -60,6 +60,8 @@ pub enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Normal,
+    /// Ahead of the pace mark: the limit runs out before its window ends.
+    Ahead,
     High,
     Critical,
 }
@@ -89,10 +91,11 @@ pub struct Limit {
 }
 
 impl Limit {
-    pub fn severity(&self) -> Severity {
+    pub fn severity(&self, now: i64) -> Severity {
         match self.percent {
             p if p >= 95.0 => Severity::Critical,
             p if p >= 80.0 => Severity::High,
+            _ if matches!(self.projection(now), Some(Projection::RunsOut(_))) => Severity::Ahead,
             _ => Severity::Normal,
         }
     }
@@ -245,7 +248,7 @@ fn parse_iso_ms(text: &str) -> Option<i64> {
 }
 
 /// Days since 1970-01-01 for a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
@@ -409,11 +412,28 @@ mod tests {
     #[test]
     fn severity_marks_the_last_stretch() {
         let mut limit = limits(&plan(), Lang::Es).remove(0);
-        assert_eq!(limit.severity(), Severity::Normal);
+        let halfway = limit.resets_at.unwrap() - 7 * DAY_MS / 2;
+        assert_eq!(limit.severity(halfway), Severity::Normal);
         limit.percent = 80.0;
-        assert_eq!(limit.severity(), Severity::High);
+        assert_eq!(limit.severity(halfway), Severity::High);
         limit.percent = 95.0;
-        assert_eq!(limit.severity(), Severity::Critical);
+        assert_eq!(limit.severity(halfway), Severity::Critical);
+    }
+
+    #[test]
+    fn passing_the_pace_mark_is_what_turns_a_limit_ahead() {
+        let mut limit = limits(&plan(), Lang::Es).remove(0);
+        let halfway = limit.resets_at.unwrap() - 7 * DAY_MS / 2;
+
+        limit.percent = 49.0;
+        assert_eq!(limit.severity(halfway), Severity::Normal);
+
+        limit.percent = 51.0;
+        assert_eq!(limit.severity(halfway), Severity::Ahead);
+
+        // Too early in the window to call it a pace.
+        let start = limit.resets_at.unwrap() - 7 * DAY_MS + HOUR_MS;
+        assert_eq!(limit.severity(start), Severity::Normal);
     }
 
     #[test]
