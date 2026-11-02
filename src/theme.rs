@@ -10,6 +10,8 @@ use crate::usage::{Kind, Limit, Severity};
 pub const AUTO: &str = "auto";
 
 const AMBER: Color = Color::hex(0xe9b949);
+const AMBER_LIGHT: Color = Color::hex(0xf5d98a);
+const ORANGE: Color = Color::hex(0xf0862e);
 const RED: Color = Color::hex(0xef5350);
 pub const WARNING: Color = AMBER;
 
@@ -267,11 +269,13 @@ pub fn system_palette() -> Palette {
     }
 }
 
-/// The fill of a limit's bar: the theme's until the limit nears its cap.
-pub fn bar_fill(limit: &Limit, palette: &Palette) -> (Color, Color) {
-    match limit.severity() {
+/// The fill of a limit's bar: the theme's until the pace or the cap calls for
+/// attention. These colors mean the same in every theme.
+pub fn bar_fill(limit: &Limit, now: i64, palette: &Palette) -> (Color, Color) {
+    match limit.severity(now) {
         Severity::Critical => (RED, RED),
-        Severity::High => (AMBER, AMBER),
+        Severity::High => (ORANGE, AMBER),
+        Severity::Ahead => (AMBER, AMBER_LIGHT),
         Severity::Normal if limit.kind == Kind::Model => palette.bar_model,
         Severity::Normal => palette.bar,
     }
@@ -360,8 +364,8 @@ mod tests {
             cap: None,
         };
         let palette = THEMES[1].palette;
-        assert_eq!(bar_fill(&limit, &palette), palette.bar);
+        assert_eq!(bar_fill(&limit, 0, &palette), palette.bar);
         limit.percent = 99.0;
-        assert_eq!(bar_fill(&limit, &palette), (RED, RED));
+        assert_eq!(bar_fill(&limit, 0, &palette), (RED, RED));
     }
 }

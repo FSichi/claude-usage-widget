@@ -345,7 +345,7 @@ fn draw_row(
     draw_toggle(canvas, toggle_x, top + 9.0, visible, palette)?;
 
     let bar = Rect::new(PAD, top + 35.0, CONTENT_W - TOGGLE_W - 12.0, 6.0);
-    draw_bar(canvas, bar, limit, limit.pace(view.now), palette)?;
+    draw_bar(canvas, bar, limit, view.now, limit.pace(view.now), palette)?;
 
     let detail = Rect::new(PAD, top + 46.0, CONTENT_W, 17.0);
     let text = row_detail(limit, view.now, view.lang);

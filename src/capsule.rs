@@ -98,7 +98,7 @@ fn draw_row(
 
     let bar = Rect::new(x + BAR_X, y + (ROW_H - BAR_H) / 2.0, BAR_W, BAR_H);
     let pace = limit.pace(view.now).filter(|_| limit.kind != Kind::Model);
-    draw_bar(canvas, bar, limit, pace, palette)?;
+    draw_bar(canvas, bar, limit, view.now, pace, palette)?;
 
     let value = Rect::new(x + VALUE_X, y, VALUE_W, ROW_H);
     canvas.text(&limit.value, value, VALUE, palette.text)?;
@@ -116,6 +116,7 @@ pub fn draw_bar(
     canvas: &Canvas,
     bar: Rect,
     limit: &Limit,
+    now: i64,
     pace: Option<f64>,
     palette: &Palette,
 ) -> Result<()> {
@@ -125,7 +126,7 @@ pub fn draw_bar(
     if filled > 0.0 {
         // A sliver shorter than its radius would draw as a misshapen dot.
         let shown = Rect::new(bar.x, bar.y, filled.max(bar.h), bar.h);
-        let (from, to) = bar_fill(limit, palette);
+        let (from, to) = bar_fill(limit, now, palette);
         canvas.fill_gradient(shown, radius, from, to)?;
     }
     if let Some(pace) = pace {
