@@ -1,6 +1,8 @@
 //! What the person chose: limits, position, theme and language.
 
 use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -84,6 +86,17 @@ pub fn data_dir() -> PathBuf {
 
 pub fn usage_path() -> PathBuf {
     data_dir().join("usage.json")
+}
+
+/// For what can go wrong where nobody is looking.
+pub fn log(line: &str) {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir().join("widget.log"));
+    if let Ok(mut file) = file {
+        let _ = writeln!(file, "{line}");
+    }
 }
 
 fn settings_path() -> PathBuf {

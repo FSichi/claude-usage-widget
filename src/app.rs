@@ -33,7 +33,7 @@ use crate::bridge;
 use crate::capsule;
 use crate::gfx::Gfx;
 use crate::panel::{self, Action, Hit, Page};
-use crate::settings::{usage_path, Settings};
+use crate::settings::{self, usage_path, Settings};
 use crate::startup;
 use crate::taskbar;
 use crate::theme;
@@ -79,6 +79,7 @@ struct App {
     host: HWND,
     taskbar: Option<HWND>,
     capsule: Option<HWND>,
+    embed_failed: bool,
     panel: Option<HWND>,
     page: Page,
     hits: Vec<Hit>,
@@ -137,6 +138,7 @@ pub fn run() -> Result<()> {
             host,
             taskbar: None,
             capsule: None,
+            embed_failed: false,
             panel: None,
             page: Page::Usage,
             hits: Vec::new(),
@@ -358,6 +360,11 @@ impl App {
         };
         let alive = self.capsule.is_some_and(taskbar::is_alive);
         if alive && self.taskbar == Some(found) {
+            if let Some(hwnd) = self.capsule {
+                if !taskbar::is_child_of(hwnd, found) {
+                    self.embed_capsule(hwnd, found);
+                }
+            }
             return;
         }
         self.close_panel();
@@ -383,13 +390,28 @@ impl App {
         let Ok(hwnd) = created else {
             return;
         };
-        taskbar::embed(hwnd, found);
         self.taskbar = Some(found);
         self.capsule = Some(hwnd);
         self.hover = false;
         self.tracking = false;
-        self.redraw_capsule();
-        let _ = unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+        self.embed_failed = false;
+        self.embed_capsule(hwnd, found);
+    }
+
+    /// Stays hidden until it is inside the taskbar: loose, it would sit at the
+    /// top of the screen, placed by taskbar coordinates.
+    fn embed_capsule(&mut self, hwnd: HWND, found: HWND) {
+        match taskbar::embed(hwnd, found) {
+            Ok(()) => {
+                self.redraw_capsule();
+                let _ = unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+            }
+            Err(error) if !self.embed_failed => {
+                self.embed_failed = true;
+                settings::log(&format!("{}: taskbar embed failed: {error}", now_ms()));
+            }
+            Err(_) => {}
+        }
     }
 
     fn redraw(&mut self) {

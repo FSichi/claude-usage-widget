@@ -1,6 +1,6 @@
 //! Living inside the Windows taskbar: finding it and becoming its child.
 
-use windows::core::w;
+use windows::core::{w, Result};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetClientRect, GetParent, GetWindowLongW, IsWindow, SetParent, SetWindowLongW,
@@ -26,7 +26,13 @@ pub fn size(taskbar: HWND) -> Option<(i32, i32)> {
     Some((rect.right - rect.left, rect.bottom - rect.top))
 }
 
-pub fn embed(hwnd: HWND, taskbar: HWND) {
+pub fn is_child_of(hwnd: HWND, taskbar: HWND) -> bool {
+    unsafe { GetParent(hwnd) }.ok() == Some(taskbar)
+}
+
+/// Fails now and then for a process the Start menu has just launched, and works
+/// when tried again, so the caller keeps trying.
+pub fn embed(hwnd: HWND, taskbar: HWND) -> Result<()> {
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
         SetWindowLongW(
@@ -42,15 +48,13 @@ pub fn embed(hwnd: HWND, taskbar: HWND) {
             ((style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0) as i32,
         );
 
-        let _ = SetParent(hwnd, Some(taskbar));
+        SetParent(hwnd, Some(taskbar))?;
         // Windows 11 can leave a reparented layered surface beneath the
         // taskbar's composition visual; resetting the style rebinds it.
-        if GetParent(hwnd).ok() == Some(taskbar) {
-            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as i32));
-            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
-        }
-        let _ = SetWindowPos(
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as i32));
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+        SetWindowPos(
             hwnd,
             Some(HWND_TOP),
             0,
@@ -58,6 +62,6 @@ pub fn embed(hwnd: HWND, taskbar: HWND) {
             0,
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
+        )
     }
 }
