@@ -74,9 +74,12 @@ fn shown_by_default(limit: &Limit) -> bool {
     limit.kind != Kind::Extra
 }
 
+/// In the home folder on purpose. Windows redirects what the Store build of
+/// the Claude app writes under AppData to a folder private to that app, so a
+/// file the mod left there would never reach the widget.
 pub fn data_dir() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA").unwrap_or_default();
-    PathBuf::from(base).join("ClaudeUsageWidget")
+    let base = std::env::var_os("USERPROFILE").unwrap_or_default();
+    PathBuf::from(base).join(".claude-usage-widget")
 }
 
 pub fn usage_path() -> PathBuf {

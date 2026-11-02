@@ -10,5 +10,14 @@ fn main() {
         )
         .expect("unable to embed manifest");
     }
+    // The icon needs a resource compiler, which only the MSVC build has to hand.
+    // That is the build the release workflow makes.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        winresource::WindowsResource::new()
+            .set_icon("assets/icon.ico")
+            .compile()
+            .expect("unable to embed icon");
+    }
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=assets/icon.ico");
 }

@@ -1,6 +1,6 @@
 [package]
 name = "claude-usage-widget"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Windows taskbar capsule showing Claude plan limits"
 publish = false
@@ -31,6 +31,7 @@ features = [
 
 [build-dependencies]
 embed-manifest = "1.5"
+winresource = "0.1"
 
 [profile.release]
 opt-level = "s"

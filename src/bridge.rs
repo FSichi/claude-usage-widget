@@ -80,26 +80,53 @@ fn unpack(root: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Every step tolerates having run before: a known catalog only refreshes, and
-/// a plugin already there updates instead of installing.
+/// Starts clean, since an earlier version may have registered another folder.
+/// The first two steps fail harmlessly on a first install.
 fn register(claude: &Path, root: &Path) -> bool {
     let id = format!("{PLUGIN}@{MARKETPLACE}");
     let root = root.to_string_lossy();
+    run(claude, &["plugin", "uninstall", &id]);
+    run(claude, &["plugin", "marketplace", "remove", MARKETPLACE]);
     run(claude, &["plugin", "marketplace", "add", &root]);
-    run(claude, &["plugin", "marketplace", "update", MARKETPLACE]);
-    run(claude, &["plugin", "install", &id, "--scope", "user"])
-        || run(claude, &["plugin", "update", &id, "--scope", "user"])
+    run(claude, &["plugin", "install", &id, "--scope", "user"]) && loads_cleanly(claude, &id)
 }
 
-fn run(claude: &Path, args: &[&str]) -> bool {
-    Command::new(claude)
+/// `plugin install` succeeds even for a plugin that then refuses to load; only
+/// the list says so. Without this the stamp would stop any further attempt.
+fn loads_cleanly(claude: &Path, id: &str) -> bool {
+    command(claude, &["plugin", "list", "--json"])
+        .output()
+        .is_ok_and(|output| is_clean(&String::from_utf8_lossy(&output.stdout), id))
+}
+
+fn is_clean(list: &str, id: &str) -> bool {
+    let Ok(plugins) = serde_json::from_str::<Vec<serde_json::Value>>(list) else {
+        return false;
+    };
+    plugins
+        .iter()
+        .find(|plugin| plugin["id"] == id)
+        .is_some_and(|plugin| {
+            let errors = plugin["errors"].as_array();
+            plugin["enabled"] == true && errors.is_none_or(|errors| errors.is_empty())
+        })
+}
+
+fn command(claude: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(claude);
+    command
         .args(args)
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+fn run(claude: &Path, args: &[&str]) -> bool {
+    command(claude, args)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }
@@ -192,6 +219,24 @@ mod tests {
         let version = bundled_version().unwrap();
         let (_, module) = FILES[3];
         assert!(module.contains(&format!("const BRIDGE = '{version}'")));
+    }
+
+    #[test]
+    fn a_plugin_that_cannot_load_does_not_count_as_installed() {
+        let id = "claude-usage-bridge@claude-usage-widget";
+        let fine = format!(r#"[{{"id": "{id}", "enabled": true}}]"#);
+        let no_errors = format!(r#"[{{"id": "{id}", "enabled": true, "errors": []}}]"#);
+        let broken = format!(
+            r#"[{{"id": "{id}", "enabled": true, "errors": ["Path escapes plugin directory"]}}]"#
+        );
+        let disabled = format!(r#"[{{"id": "{id}", "enabled": false}}]"#);
+
+        assert!(is_clean(&fine, id));
+        assert!(is_clean(&no_errors, id));
+        assert!(!is_clean(&broken, id));
+        assert!(!is_clean(&disabled, id));
+        assert!(!is_clean("[]", id));
+        assert!(!is_clean("not json", id));
     }
 
     #[test]

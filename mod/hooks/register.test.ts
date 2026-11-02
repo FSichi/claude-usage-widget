@@ -10,7 +10,7 @@ const reply = (text: string, isError = false) => ({
 function session(on: Parameters<Parameters<typeof test>[1]>[1], answer: () => unknown) {
   const written: { path: string; text: string }[] = []
   const clock = mock.clock(on, { now: 1_000_000 })
-  mock.env(on, { LOCALAPPDATA: 'C:/data' })
+  mock.env(on, { USERPROFILE: 'C:/home' })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('fs.stat', () => {
     throw new Error('no such file')
@@ -31,7 +31,7 @@ test('writes what the app reports, and again every minute', async ($, on) => {
   await $.session.start(start)
   await clock.advance(1)
   expect(written).toHaveLength(1)
-  expect(written[0].path.replaceAll('\\', '/')).toBe('C:/data/ClaudeUsageWidget/usage.json')
+  expect(written[0].path.replaceAll('\\', '/')).toBe('C:/home/.claude-usage-widget/usage.json')
   const snapshot = JSON.parse(written[0].text)
   expect(snapshot.plan).toEqual(PLAN)
   expect(snapshot.updatedAt).toBe(clock.now() - 1)

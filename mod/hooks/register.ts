@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-const BRIDGE = '0.2.0'
+const BRIDGE = '0.3.0'
 const SERVER = 'ccd_session_mgmt'
 const TOOL = 'get_usage'
 const PERIOD_MS = 60_000
@@ -9,9 +9,11 @@ const MIN_GAP_MS = 45_000
 
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
-    const base = await $.env.get('LOCALAPPDATA')
-    if (!base) return next(e)
-    const path = `${base}/ClaudeUsageWidget/usage.json`
+    const home = await $.env.get('USERPROFILE')
+    if (!home) return next(e)
+    // Not under AppData: there Windows redirects what the Store build of the
+    // app writes to a folder only that app sees.
+    const path = `${home}/.claude-usage-widget/usage.json`
 
     const refresh = async () => {
       try {

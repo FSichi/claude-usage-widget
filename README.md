@@ -19,14 +19,31 @@ El dato empieza a llegar con la próxima sesión de Claude Code que abras en la 
 ## De dónde sale el dato
 
 El widget no se conecta a ninguna red ni lee credenciales: dibuja lo que encuentra en
-`%LOCALAPPDATA%\ClaudeUsageWidget\usage.json`.
+`%USERPROFILE%\.claude-usage-widget\usage.json`.
 
 Ese archivo lo escribe [`mod/`](mod), un mod de la app de Claude que cada minuto le pide los
 límites a la propia app. Va dentro del `.exe`, que lo registra solo con el CLI de Claude Code. Por
 eso el dato solo se actualiza mientras haya una sesión de Claude Code activa en la app; si no, el
 widget muestra el último dato y avisa que no hay datos nuevos.
 
+Todo vive en la carpeta de usuario y no en `AppData` a propósito: la app de Claude de Microsoft
+Store corre empaquetada, y Windows redirige lo que escribe en `AppData` a una carpeta privada que
+el widget no ve.
+
 La consulta que usa el mod no es una API pública de Anthropic: si cambia, habrá que ajustar el mod.
+
+## Publicar una versión
+
+Una etiqueta `v*` dispara [el Action](.github/workflows/release.yml): corre los tests en Windows,
+compila el `.exe` con el logo y lo publica en Releases. Si se lanza a mano desde la pestaña Actions,
+deja el `.exe` como artefacto de la corrida, sin publicar nada.
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+El logo se genera con [`assets/make-icon.ps1`](assets/make-icon.ps1).
 
 ## Compilar
 
@@ -41,4 +58,5 @@ claude plugin test mod
 ```
 
 La configuración está en `.cargo/config.toml`. Si el repo está en una carpeta sincronizada, como
-OneDrive, conviene definir `build.target-dir` en `~/.cargo/config.toml`.
+OneDrive, conviene definir `build.target-dir` en `~/.cargo/config.toml`. Esta compilación local no
+lleva el logo, porque hace falta un compilador de recursos: el `.exe` con logo sale del Action.
