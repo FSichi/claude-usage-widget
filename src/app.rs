@@ -156,6 +156,7 @@ pub fn run() -> Result<()> {
         with_app(App::tick);
         SetTimer(Some(host), TIMER_TICK, TICK_MS, None);
         bridge::ensure_installed();
+        startup::ensure_menu_entry();
 
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).as_bool() {

@@ -12,7 +12,11 @@ Una cápsula para la barra de tareas de Windows que muestra el consumo del plan 
 ## Usarlo
 
 Abrí `claude-usage-widget.exe` y listo. En el primer arranque el widget se deja configurado: activa
-el inicio con Windows y registra el mod que lo alimenta. Hace falta tener instalada la app de Claude.
+el inicio con Windows, crea su acceso en el menú Inicio y registra el mod que lo alimenta. Hace falta
+tener instalada la app de Claude.
+
+La marca vertical de cada barra es el ritmo esperado: dónde estaría el consumo si se repartiera
+parejo en toda la ventana. Si la barra no llegó a la marca, vas por debajo de ese ritmo.
 
 El dato empieza a llegar con la próxima sesión de Claude Code que abras en la app.
 
