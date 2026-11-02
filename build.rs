@@ -15,6 +15,8 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         winresource::WindowsResource::new()
             .set_icon("assets/icon.ico")
+            .set("ProductName", "Claude Usage Widget")
+            .set("FileDescription", "Claude Usage Widget")
             .compile()
             .expect("unable to embed icon");
     }

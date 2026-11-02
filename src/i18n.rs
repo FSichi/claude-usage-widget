@@ -1,7 +1,9 @@
 //! Every word the widget shows, in Spanish and English.
 
 use serde::{Deserialize, Serialize};
+use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
+use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 
 const SPANISH_PRIMARY_ID: u16 = 0x0a;
 const PRIMARY_ID_MASK: u16 = 0x3ff;
@@ -9,12 +11,45 @@ const PRIMARY_ID_MASK: u16 = 0x3ff;
 const MINUTE_MS: i64 = 60_000;
 const HOUR_MS: i64 = 60 * MINUTE_MS;
 const DAY_MS: i64 = 24 * HOUR_MS;
+/// From the Windows epoch, 1601, to the Unix one.
+const UNIX_EPOCH_IN_FILETIME_MS: i64 = 11_644_473_600_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Lang {
     Es,
     En,
+}
+
+/// A moment on this machine's clock and in its time zone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalTime {
+    pub date: (u16, u16, u16),
+    pub weekday: u16,
+    pub hour: u16,
+    pub minute: u16,
+}
+
+impl LocalTime {
+    pub fn from_ms(ms: i64) -> Option<Self> {
+        let ticks = ((ms + UNIX_EPOCH_IN_FILETIME_MS) * 10_000) as u64;
+        let file_time = FILETIME {
+            dwLowDateTime: ticks as u32,
+            dwHighDateTime: (ticks >> 32) as u32,
+        };
+        let mut utc = SYSTEMTIME::default();
+        let mut local = SYSTEMTIME::default();
+        unsafe {
+            FileTimeToSystemTime(&file_time, &mut utc).ok()?;
+            SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).ok()?;
+        }
+        Some(Self {
+            date: (local.wYear, local.wMonth, local.wDay),
+            weekday: local.wDayOfWeek,
+            hour: local.wHour,
+            minute: local.wMinute,
+        })
+    }
 }
 
 impl Lang {
@@ -89,6 +124,85 @@ impl Lang {
             self.resets_in(left),
             self.pick("ritmo esperado", "expected pace")
         )
+    }
+
+    pub fn on_pace_for(self, percent: i64) -> String {
+        format!(
+            "{} {percent}%",
+            self.pick("A este ritmo llegás al", "At this pace you'll reach")
+        )
+    }
+
+    pub fn runs_out(self, at: LocalTime, now: LocalTime) -> String {
+        format!(
+            "{} {}",
+            self.pick(
+                "A este ritmo llegás al límite",
+                "At this pace you'll hit the limit"
+            ),
+            self.moment(at, now)
+        )
+    }
+
+    fn moment(self, at: LocalTime, now: LocalTime) -> String {
+        let clock = format!("{:02}:{:02}", at.hour, at.minute);
+        if at.date == now.date {
+            return format!("{} {clock}", self.pick("hoy a las", "today at"));
+        }
+        match self {
+            Lang::Es => format!("el {} a las {clock}", self.weekday(at.weekday)),
+            Lang::En => format!("on {} at {clock}", self.weekday(at.weekday)),
+        }
+    }
+
+    const fn weekday(self, day: u16) -> &'static str {
+        match day {
+            0 => self.pick("domingo", "Sunday"),
+            1 => self.pick("lunes", "Monday"),
+            2 => self.pick("martes", "Tuesday"),
+            3 => self.pick("miércoles", "Wednesday"),
+            4 => self.pick("jueves", "Thursday"),
+            5 => self.pick("viernes", "Friday"),
+            _ => self.pick("sábado", "Saturday"),
+        }
+    }
+
+    pub const fn alert_near(self) -> &'static str {
+        self.pick("Te acercás a un límite", "You're nearing a limit")
+    }
+
+    pub const fn alert_critical(self) -> &'static str {
+        self.pick(
+            "Estás por llegar a un límite",
+            "You're about to hit a limit",
+        )
+    }
+
+    pub const fn alert_reset(self) -> &'static str {
+        self.pick("Se reinició un límite", "A limit has reset")
+    }
+
+    pub fn alert_line(self, title: &str, value: &str, left_ms: Option<i64>) -> String {
+        match left_ms {
+            Some(left) => format!(
+                "{title}: {value}, {} {}",
+                self.pick("reinicia en", "resets in"),
+                self.left(left)
+            ),
+            None => format!("{title}: {value}"),
+        }
+    }
+
+    pub fn alert_reset_line(self, title: &str) -> String {
+        format!("{title} {}", self.pick("volvió a cero", "is back to zero"))
+    }
+
+    pub const fn alerts(self) -> &'static str {
+        self.pick("Alertas", "Alerts")
+    }
+
+    pub const fn alert_at(self) -> &'static str {
+        self.pick("Avisarme al", "Notify me at")
     }
 
     pub fn left(self, ms: i64) -> String {
@@ -225,6 +339,52 @@ mod tests {
         );
         assert_eq!(Lang::En.of_amount_month(50), "of $50 this month");
         assert_eq!(Lang::En.weekly_model("Fable"), "Weekly, Fable");
+    }
+
+    fn local(day: u16, weekday: u16) -> LocalTime {
+        LocalTime {
+            date: (2026, 11, day),
+            weekday,
+            hour: 9,
+            minute: 5,
+        }
+    }
+
+    #[test]
+    fn running_out_says_when_in_plain_words() {
+        let now = local(2, 1);
+        assert_eq!(
+            Lang::Es.runs_out(local(2, 1), now),
+            "A este ritmo llegás al límite hoy a las 09:05"
+        );
+        assert_eq!(
+            Lang::Es.runs_out(local(5, 4), now),
+            "A este ritmo llegás al límite el jueves a las 09:05"
+        );
+        assert_eq!(
+            Lang::En.runs_out(local(8, 0), now),
+            "At this pace you'll hit the limit on Sunday at 09:05"
+        );
+    }
+
+    #[test]
+    fn local_time_reads_a_known_moment() {
+        let time = LocalTime::from_ms(1_793_988_000_000).unwrap();
+        assert_eq!(time.date.0, 2026);
+        assert_eq!(time.date.1, 11);
+        assert!(time.weekday <= 6);
+    }
+
+    #[test]
+    fn alert_lines_mention_the_reset_when_there_is_one() {
+        assert_eq!(
+            Lang::Es.alert_line("Fable", "82%", Some(3 * DAY_MS)),
+            "Fable: 82%, reinicia en 3d 0h"
+        );
+        assert_eq!(
+            Lang::En.alert_line("Extra usage", "$40", None),
+            "Extra usage: $40"
+        );
     }
 
     #[test]

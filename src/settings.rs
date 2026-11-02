@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::alerts::Mark;
 use crate::i18n::Lang;
 use crate::theme::AUTO;
 use crate::usage::{Kind, Limit};
@@ -23,6 +24,11 @@ pub struct Settings {
     pub lang: Option<Lang>,
     /// Set after the first run, which turns on starting with Windows.
     pub initialized: bool,
+    pub alerts: bool,
+    /// The percent of a limit that sets off the first alert.
+    pub alert_at: u8,
+    /// What each limit has already been alerted about.
+    pub marks: BTreeMap<String, Mark>,
 }
 
 impl Default for Settings {
@@ -33,6 +39,9 @@ impl Default for Settings {
             theme: AUTO.to_string(),
             lang: None,
             initialized: false,
+            alerts: true,
+            alert_at: 80,
+            marks: BTreeMap::new(),
         }
     }
 }
@@ -148,5 +157,7 @@ mod tests {
         assert_eq!(back.offset_x, Some(5));
         assert_eq!(back.theme, AUTO);
         assert!(back.lang.is_none());
+        assert!(back.alerts);
+        assert_eq!(back.alert_at, 80);
     }
 }

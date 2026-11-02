@@ -4,10 +4,10 @@ use windows::core::Result;
 
 use crate::capsule::draw_bar;
 use crate::gfx::{Align, Canvas, Color, Font, Rect};
-use crate::i18n::Lang;
+use crate::i18n::{Lang, LocalTime};
 use crate::settings::Settings;
 use crate::theme::{system_palette, Palette, Theme, AUTO, THEMES, WARNING};
-use crate::usage::{Kind, Limit};
+use crate::usage::{Kind, Limit, Projection};
 
 pub const WIDTH: f32 = 372.0;
 /// Gap between the panel and the taskbar.
@@ -18,6 +18,7 @@ const CONTENT_W: f32 = WIDTH - 2.0 * PAD;
 const HEADER_H: f32 = 64.0;
 const NOTICE_H: f32 = 46.0;
 const ROW_H: f32 = 70.0;
+const PROJECTION_H: f32 = 17.0;
 const MISSING_H: f32 = 32.0;
 const BOTTOM_PAD: f32 = 8.0;
 
@@ -34,6 +35,8 @@ const THEME_H: f32 = THEME_PREVIEW_H + 22.0;
 const OPTION_H: f32 = 46.0;
 const SEGMENT_W: f32 = 82.0;
 const SEGMENT_H: f32 = 30.0;
+const ALERT_SEGMENT_W: f32 = 62.0;
+const ALERT_LEVELS: [u8; 3] = [70, 80, 90];
 
 const GEAR: &str = "\u{E713}";
 const BACK: &str = "\u{E72B}";
@@ -60,6 +63,8 @@ pub enum Action {
     Page(Page),
     Theme(&'static str),
     Lang(Lang),
+    Alerts,
+    AlertAt(u8),
     Startup,
     Quit,
 }
@@ -67,7 +72,10 @@ pub enum Action {
 impl Action {
     /// Whole rows light up under the pointer; cards and buttons draw their own.
     fn is_row(&self) -> bool {
-        matches!(self, Action::Toggle(_) | Action::Startup | Action::Quit)
+        matches!(
+            self,
+            Action::Toggle(_) | Action::Alerts | Action::Startup | Action::Quit
+        )
     }
 }
 
@@ -98,13 +106,28 @@ impl View<'_> {
         HEADER_H + if self.notice.is_some() { NOTICE_H } else { 0.0 }
     }
 
+    fn row_height(&self, limit: &Limit) -> f32 {
+        match limit.projection(self.now) {
+            Some(_) => ROW_H + PROJECTION_H,
+            None => ROW_H,
+        }
+    }
+
+    fn row_top(&self, index: usize) -> f32 {
+        let above: f32 = self.limits[..index]
+            .iter()
+            .map(|limit| self.row_height(limit))
+            .sum();
+        self.rows_top() + above
+    }
+
     fn rows_bottom(&self) -> f32 {
         let missing = if self.misses_session() {
             MISSING_H
         } else {
             0.0
         };
-        self.rows_top() + self.limits.len() as f32 * ROW_H + missing
+        self.row_top(self.limits.len()) + missing
     }
 
     pub fn height(&self) -> f32 {
@@ -128,7 +151,7 @@ impl View<'_> {
             .iter()
             .enumerate()
             .map(|(index, limit)| Hit {
-                rect: Rect::new(0.0, self.rows_top() + index as f32 * ROW_H, WIDTH, ROW_H),
+                rect: Rect::new(0.0, self.row_top(index), WIDTH, self.row_height(limit)),
                 action: Action::Toggle(limit.id.clone()),
             })
             .collect();
@@ -168,14 +191,32 @@ fn language_top() -> f32 {
     theme_grid_top() + rows * (THEME_H + THEME_GAP)
 }
 
-fn segment_rect(index: usize) -> Rect {
-    let x = WIDTH - PAD - (2 - index) as f32 * SEGMENT_W;
-    let y = language_top() + (OPTION_H - SEGMENT_H) / 2.0;
-    Rect::new(x, y, SEGMENT_W, SEGMENT_H)
+fn alerts_top() -> f32 {
+    language_top() + OPTION_H
+}
+
+fn startup_top() -> f32 {
+    alerts_top() + 2.0 * OPTION_H
+}
+
+/// One of `count` segments lined up against the right edge of an option row.
+fn segment_rect(index: usize, count: usize, width: f32, row_top: f32) -> Rect {
+    let x = WIDTH - PAD - (count - index) as f32 * width;
+    let y = row_top + (OPTION_H - SEGMENT_H) / 2.0;
+    Rect::new(x, y, width, SEGMENT_H)
+}
+
+fn language_segment(index: usize) -> Rect {
+    segment_rect(index, 2, SEGMENT_W, language_top())
+}
+
+fn alert_segment(index: usize) -> Rect {
+    let row = alerts_top() + OPTION_H;
+    segment_rect(index, ALERT_LEVELS.len(), ALERT_SEGMENT_W, row)
 }
 
 fn settings_bottom() -> f32 {
-    language_top() + 3.0 * OPTION_H
+    startup_top() + 2.0 * OPTION_H
 }
 
 fn settings_hits() -> Vec<Hit> {
@@ -189,17 +230,24 @@ fn settings_hits() -> Vec<Hit> {
     }));
     for (index, lang) in [Lang::Es, Lang::En].into_iter().enumerate() {
         hits.push(Hit {
-            rect: segment_rect(index),
+            rect: language_segment(index),
             action: Action::Lang(lang),
         });
     }
-    let options = language_top() + OPTION_H;
     hits.push(Hit {
-        rect: Rect::new(0.0, options, WIDTH, OPTION_H),
+        rect: Rect::new(0.0, alerts_top(), WIDTH, OPTION_H),
+        action: Action::Alerts,
+    });
+    hits.extend(ALERT_LEVELS.iter().enumerate().map(|(index, level)| Hit {
+        rect: alert_segment(index),
+        action: Action::AlertAt(*level),
+    }));
+    hits.push(Hit {
+        rect: Rect::new(0.0, startup_top(), WIDTH, OPTION_H),
         action: Action::Startup,
     });
     hits.push(Hit {
-        rect: Rect::new(0.0, options + OPTION_H, WIDTH, OPTION_H),
+        rect: Rect::new(0.0, startup_top() + OPTION_H, WIDTH, OPTION_H),
         action: Action::Quit,
     });
     hits
@@ -270,11 +318,10 @@ fn draw_usage(canvas: &Canvas, view: &View, palette: &Palette) -> Result<()> {
         canvas.text(notice, text, NOTICE, palette.text)?;
     }
     for (index, limit) in view.limits.iter().enumerate() {
-        let top = view.rows_top() + index as f32 * ROW_H;
-        draw_row(canvas, view, limit, top, palette)?;
+        draw_row(canvas, view, limit, view.row_top(index), palette)?;
     }
     if view.misses_session() {
-        let top = view.rows_top() + view.limits.len() as f32 * ROW_H;
+        let top = view.row_top(view.limits.len());
         let area = Rect::new(PAD, top, CONTENT_W, MISSING_H);
         canvas.text(lang.no_session_limit(), area, SMALL, palette.muted)?;
     }
@@ -302,7 +349,26 @@ fn draw_row(
 
     let detail = Rect::new(PAD, top + 46.0, CONTENT_W, 17.0);
     let text = row_detail(limit, view.now, view.lang);
-    canvas.text(&text, detail, SMALL, palette.muted)
+    canvas.text(&text, detail, SMALL, palette.muted)?;
+
+    let line = Rect::new(PAD, top + 63.0, CONTENT_W, PROJECTION_H);
+    match limit.projection(view.now) {
+        Some(Projection::Reaches(percent)) => {
+            let text = view.lang.on_pace_for(percent);
+            canvas.text(&text, line, SMALL, palette.muted)
+        }
+        Some(Projection::RunsOut(at)) => {
+            // The one that calls for attention: full text color, not muted.
+            let moments = LocalTime::from_ms(at).zip(LocalTime::from_ms(view.now));
+            match moments {
+                Some((at, now)) => {
+                    canvas.text(&view.lang.runs_out(at, now), line, SMALL, palette.text)
+                }
+                None => Ok(()),
+            }
+        }
+        None => Ok(()),
+    }
 }
 
 fn row_detail(limit: &Limit, now: i64, lang: Lang) -> String {
@@ -366,23 +432,51 @@ fn draw_settings(
         .into_iter()
         .enumerate()
     {
-        draw_segment(canvas, segment_rect(index), name, lang == choice, palette)?;
+        draw_segment(
+            canvas,
+            language_segment(index),
+            name,
+            lang == choice,
+            palette,
+        )?;
     }
 
-    let options = top + OPTION_H;
-    canvas.fill(
-        Rect::new(PAD, options, CONTENT_W, 1.0),
-        0.0,
-        palette.divider,
-    )?;
+    let toggle_x = WIDTH - PAD - TOGGLE_W;
+    let toggle_offset = (OPTION_H - TOGGLE_H) / 2.0;
+
+    let alerts = alerts_top();
+    draw_divider(canvas, alerts, palette)?;
+    let label = Rect::new(PAD, alerts, 240.0, OPTION_H);
+    canvas.text(lang.alerts(), label, LABEL, palette.text)?;
+    let enabled = view.settings.alerts;
+    draw_toggle(canvas, toggle_x, alerts + toggle_offset, enabled, palette)?;
+
+    let label = Rect::new(PAD, alerts + OPTION_H, 160.0, OPTION_H);
+    canvas.text(lang.alert_at(), label, LABEL, palette.text)?;
+    for (index, level) in ALERT_LEVELS.iter().enumerate() {
+        let selected = view.settings.alert_at == *level;
+        let text = format!("{level}%");
+        draw_segment(canvas, alert_segment(index), &text, selected, palette)?;
+    }
+
+    let options = startup_top();
+    draw_divider(canvas, options, palette)?;
     let startup = Rect::new(PAD, options, 240.0, OPTION_H);
     canvas.text(lang.start_with_windows(), startup, LABEL, palette.text)?;
-    let toggle_x = WIDTH - PAD - TOGGLE_W;
-    let toggle_y = options + (OPTION_H - TOGGLE_H) / 2.0;
-    draw_toggle(canvas, toggle_x, toggle_y, view.startup, palette)?;
+    draw_toggle(
+        canvas,
+        toggle_x,
+        options + toggle_offset,
+        view.startup,
+        palette,
+    )?;
 
     let quit = Rect::new(PAD, options + OPTION_H, 240.0, OPTION_H);
     canvas.text(lang.quit(), quit, LABEL, palette.muted)
+}
+
+fn draw_divider(canvas: &Canvas, y: f32, palette: &Palette) -> Result<()> {
+    canvas.fill(Rect::new(PAD, y, CONTENT_W, 1.0), 0.0, palette.divider)
 }
 
 fn draw_theme_card(
@@ -515,7 +609,31 @@ mod tests {
             assert!(hits.iter().any(|hit| hit.action == Action::Theme(theme.id)));
         }
         assert!(hits.iter().any(|hit| hit.action == Action::Lang(Lang::En)));
+        assert!(hits.iter().any(|hit| hit.action == Action::Alerts));
+        assert!(hits.iter().any(|hit| hit.action == Action::AlertAt(90)));
         assert!(hits.iter().any(|hit| hit.action == Action::Quit));
+    }
+
+    #[test]
+    fn the_default_alert_level_is_one_the_panel_offers() {
+        assert!(ALERT_LEVELS.contains(&Settings::default().alert_at));
+    }
+
+    #[test]
+    fn a_row_with_a_projection_takes_one_more_line() {
+        let settings = Settings::default();
+        let mut used = limit("weekly", Kind::Weekly);
+        used.resets_at = Some(120_000);
+        used.window_ms = Some(240_000);
+
+        let mut untouched = used.clone();
+        untouched.percent = 0.0;
+
+        let limits = [used, untouched];
+        let view = view(Page::Usage, &limits, &settings, None);
+        assert_eq!(view.row_height(&limits[0]), ROW_H + PROJECTION_H);
+        assert_eq!(view.row_height(&limits[1]), ROW_H);
+        assert_eq!(view.row_top(1), view.rows_top() + ROW_H + PROJECTION_H);
     }
 
     #[test]

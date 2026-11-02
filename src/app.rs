@@ -29,9 +29,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
+use crate::alerts;
 use crate::bridge;
 use crate::capsule;
 use crate::gfx::Gfx;
+use crate::notify;
 use crate::panel::{self, Action, Hit, Page};
 use crate::settings::{self, usage_path, Settings};
 use crate::startup;
@@ -157,6 +159,7 @@ pub fn run() -> Result<()> {
         SetTimer(Some(host), TIMER_TICK, TICK_MS, None);
         bridge::ensure_installed();
         startup::ensure_menu_entry();
+        std::thread::spawn(notify::register);
 
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).as_bool() {
@@ -283,6 +286,9 @@ impl App {
     fn tick(&mut self) {
         self.ensure_capsule();
         let changed = self.reload();
+        if changed {
+            self.check_alerts();
+        }
         self.ticks = self.ticks.wrapping_add(1);
         if changed || self.ticks.is_multiple_of(REDRAW_EVERY_TICKS) {
             self.redraw();
@@ -307,6 +313,33 @@ impl App {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Marks stay current with alerts off, so turning them on does not announce
+    /// what already happened. An old file says nothing about now.
+    fn check_alerts(&mut self) {
+        if self.is_stale() {
+            return;
+        }
+        let limits = self.limits();
+        let warn_at = f64::from(self.settings.alert_at);
+        let mut events = Vec::new();
+        let mut changed = false;
+        for limit in &limits {
+            let mark = self.settings.marks.get(&limit.id).copied();
+            let (next, event) = alerts::check(limit, mark.unwrap_or_default(), warn_at);
+            changed |= mark != Some(next);
+            self.settings.marks.insert(limit.id.clone(), next);
+            events.extend(event.map(|event| (limit, event)));
+        }
+        if changed {
+            self.settings.save();
+        }
+        if self.settings.alerts {
+            if let Some((title, body)) = alerts::message(&events, now_ms(), self.settings.lang()) {
+                notify::show(title, body);
+            }
         }
     }
 
@@ -730,6 +763,16 @@ impl App {
                 self.settings.lang = Some(lang);
                 self.settings.save();
                 self.redraw();
+            }
+            Action::Alerts => {
+                self.settings.alerts = !self.settings.alerts;
+                self.settings.save();
+                self.redraw_panel();
+            }
+            Action::AlertAt(level) => {
+                self.settings.alert_at = level;
+                self.settings.save();
+                self.redraw_panel();
             }
             Action::Startup => {
                 startup::set_enabled(!startup::is_enabled());

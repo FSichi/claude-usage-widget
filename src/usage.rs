@@ -11,6 +11,9 @@ const DAY_MS: i64 = 24 * HOUR_MS;
 /// The source refreshes every minute; past this it stopped reporting.
 pub const STALE_AFTER_MS: i64 = 5 * MINUTE_MS;
 
+/// How much of a window has to pass before its pace says anything.
+const MIN_ELAPSED_FOR_PROJECTION: f64 = 0.06;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -61,6 +64,15 @@ pub enum Severity {
     Critical,
 }
 
+/// Where the limit is headed if the pace so far holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Projection {
+    /// The percent it ends its window at.
+    Reaches(i64),
+    /// The moment it runs out, before its window ends.
+    RunsOut(i64),
+}
+
 /// One row the UI can show or hide, whatever the plan reports.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Limit {
@@ -91,6 +103,23 @@ impl Limit {
         let window = self.window_ms?;
         let left = (self.resets_at? - now).clamp(0, window);
         Some(100.0 * (window - left) as f64 / window as f64)
+    }
+
+    /// A straight line from the pace so far. Nothing while the window is too
+    /// young to tell, or while nothing has been used.
+    pub fn projection(&self, now: i64) -> Option<Projection> {
+        let window = self.window_ms? as f64;
+        let left = (self.resets_at? - now).max(0) as f64;
+        let elapsed = window - left;
+        if self.percent < 1.0 || elapsed / window < MIN_ELAPSED_FOR_PROJECTION {
+            return None;
+        }
+        let at_reset = self.percent * window / elapsed;
+        if at_reset < 100.0 {
+            return Some(Projection::Reaches(at_reset.round() as i64));
+        }
+        let until_empty = (100.0 - self.percent).max(0.0) * elapsed / self.percent;
+        Some(Projection::RunsOut(now + until_empty as i64))
     }
 
     /// What goes after the percent: the countdown, or the extra usage cap.
@@ -334,6 +363,47 @@ mod tests {
         assert_eq!(limit.pace(reset - 8 * DAY_MS), Some(0.0));
         let half = limit.pace(reset - 7 * DAY_MS / 2).unwrap();
         assert!((half - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn projection_extends_the_pace_so_far() {
+        let mut limit = limits(&plan(), Lang::Es).remove(0);
+        let reset = limit.resets_at.unwrap();
+        let halfway = reset - 7 * DAY_MS / 2;
+
+        limit.percent = 20.0;
+        assert_eq!(limit.projection(halfway), Some(Projection::Reaches(40)));
+
+        // 80% in half a week leaves 20%, a quarter of the time used so far.
+        limit.percent = 80.0;
+        assert_eq!(
+            limit.projection(halfway),
+            Some(Projection::RunsOut(halfway + 7 * DAY_MS / 8))
+        );
+    }
+
+    #[test]
+    fn projection_waits_for_something_to_project() {
+        let mut limit = limits(&plan(), Lang::Es).remove(0);
+        let reset = limit.resets_at.unwrap();
+
+        limit.percent = 30.0;
+        assert_eq!(limit.projection(reset - 7 * DAY_MS + HOUR_MS), None);
+
+        limit.percent = 0.0;
+        assert_eq!(limit.projection(reset - DAY_MS), None);
+
+        limit.percent = 30.0;
+        limit.window_ms = None;
+        assert_eq!(limit.projection(reset - DAY_MS), None);
+    }
+
+    #[test]
+    fn a_limit_already_used_up_has_run_out_now() {
+        let mut limit = limits(&plan(), Lang::Es).remove(0);
+        let now = limit.resets_at.unwrap() - DAY_MS;
+        limit.percent = 100.0;
+        assert_eq!(limit.projection(now), Some(Projection::RunsOut(now)));
     }
 
     #[test]

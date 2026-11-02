@@ -5,6 +5,8 @@ Una cápsula para la barra de tareas de Windows que muestra el consumo del plan 
 - Muestra solo los límites que tu plan informa: semanal, por modelo, 5 horas y uso extra.
 - Cada límite se muestra u oculta desde el panel que se abre con un clic.
 - Marca el ritmo esperado, para ver si vas por encima o por debajo de lo que corresponde a esta altura de la ventana.
+- Proyecta dónde vas a terminar si mantenés ese ritmo, o cuándo llegarías al límite.
+- Avisa con una notificación de Windows al cruzar el 70, 80 o 90% que elijas, al llegar al 95%, y cuando se reinicia un límite que ya te había avisado.
 - Ocho temas, y español o inglés.
 - Se arrastra a lo largo de la barra y guarda la posición.
 - Es un `.exe` nativo de menos de 1 MB.
@@ -17,6 +19,8 @@ tener instalada la app de Claude.
 
 La marca vertical de cada barra es el ritmo esperado: dónde estaría el consumo si se repartiera
 parejo en toda la ventana. Si la barra no llegó a la marca, vas por debajo de ese ritmo.
+
+Para comprobar que las notificaciones llegan a esta PC, abrí el `.exe` con `--test-alert`.
 
 El dato empieza a llegar con la próxima sesión de Claude Code que abras en la app.
 
