@@ -1,0 +1,6 @@
+{
+  "name": "claude-usage-bridge",
+  "version": "0.1.0",
+  "description": "Writes the plan limits the Claude app reports to a local file for a taskbar widget, without touching any token.",
+  "author": { "name": "Facu Sichi" }
+}

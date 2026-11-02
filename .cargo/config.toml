@@ -1,0 +1,8 @@
+# Builds without Visual Studio: rustc writes the import libraries itself and
+# rust-lld links against the libraries the target's rust-mingw component ships.
+[build]
+target = "x86_64-pc-windows-gnullvm"
+
+[target.x86_64-pc-windows-gnullvm]
+linker = "rust-lld"
+rustflags = ["-Clinker-flavor=ld.lld", "-Clink-self-contained=yes", "-Ctarget-feature=+crt-static"]
